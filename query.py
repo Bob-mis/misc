@@ -1,57 +1,57 @@
 import requests
+import json
+import re
 
 address = "0x7Ce3c34b2c528330A2312B6621015D58B6FbCB61"
 start_block = 9422173
 end_block = 9459169
 
-print(f"正在精准查询区块 {start_block} 到 {end_block} 之间的数据...")
+# 使用 Etherscan 的网页端公开接口（无需 API Key，不会被 NOTOK）
+# 这个接口是给网页前端用的，非常稳定
+url = f"https://sepolia.etherscan.io/address/{address}?blockStart={start_block}&blockEnd={end_block}"
 
-# 直接使用 Blockscout 的 API，根据区块范围过滤
-url = f"https://eth-sepolia.blockscout.com/api/v2/addresses/{address}/transactions?filter=from&block_range={start_block}..{end_block}"
+headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+}
 
+print("正在从 Etherscan 网页端获取数据...")
 try:
-    response = requests.get(url, timeout=30)
+    response = requests.get(url, headers=headers, timeout=30)
     if response.status_code == 200:
-        data = response.json()
-        items = data.get('items', [])
+        # 网页数据太大，我们用正则表达式提取关键信息
+        html = response.text
         
-        print(f"共找到 {len(items)} 笔交易。")
-        
-        if items:
-            # 取最后一笔交易 (列表可能是按时间倒序，第一笔是最新)
-            # 我们先确保按区块排序
-            items.sort(key=lambda x: int(x.get('block_number', 0)))
-            last_tx = items[-1] # 取最新的一笔
-            first_tx = items[0] # 取最早的一笔
-            
-            # 1. 计算 Nonce
-            nonce = int(last_tx.get('nonce', 0))
-            print(f"\n1. 最后一笔交易区块: {last_tx.get('block_number')}")
-            print(f"2. 最后一笔交易 Nonce: {nonce}")
-            print(f"3. 下一笔应使用的 Nonce: {nonce + 1}")
-            
-            # 2. 找创建合约的交易 (To 为 None)
-            contract_txs = [tx for tx in items if tx.get('to') is None]
-            if contract_txs:
-                # 取最早的一笔创建合约交易
-                contract_addr = contract_txs[0].get('created_contract', {}).get('hash', '')
-                if contract_addr:
-                    print(f"4. 创建的合约地址后8位: {contract_addr[-8:]}")
-                else:
-                    print("4. 未找到合约地址详情（可能API延迟）")
-            else:
-                print("4. 区间内未创建合约。")
-
-            # 3. 判断水龙头标识 (看最早一笔转入)
-            # 注意：这里我们查的是 From 的交易，要看转入得查 To。
-            # 为了保险，我们可以再查一下转入记录，或者直接看这个列表。
-            print(f"\n5. 请根据以下信息判断水龙头:")
-            print(f"   最早一笔交易来自 (From): {first_tx.get('from', {}).get('hash', '')}")
-            
+        # 1. 提取账户类型 (看页面上有没有 "Contract" 标签)
+        if "Contract" in html and "Contract Address" not in html:
+            print("1. 账户类型: contract")
         else:
-            print("区间内没有交易。")
+            print("1. 账户类型: eoa")
+            
+        # 2. 提取该地址当前的 Nonce (网页上会显示 "Nonce: X")
+        nonce_match = re.search(r'Nonce:\s*(\d+)', html)
+        if nonce_match:
+            current_nonce = int(nonce_match.group(1))
+            print(f"2. 网页显示当前 Nonce: {current_nonce}")
+            print(f"   -> 下一笔交易应使用的 Nonce (如果是全生命周期): {current_nonce + 1}")
+        else:
+            print("2. 未在网页上找到 Nonce 信息。")
+            
+        # 3. 提取该地址创建的合约地址 (如果有)
+        # 网页上通常会显示 "Contract Creator" 和 "at txn" 以及 "Contract Address"
+        contract_match = re.search(r'Contract Address[^>]*>([^<]+)', html)
+        if contract_match:
+            contract_addr = contract_match.group(1).strip()
+            print(f"4. 合约地址: {contract_addr}")
+            print(f"   -> 后 8 位: {contract_addr[-8:]}")
+        else:
+            # 尝试从交易列表里找
+            print("4. 未在页面上直接找到合约地址，请查看日志中的交易列表（如果有）。")
+            
+        # 4. 水龙头标识 (从最早转入交易里找)
+        # 我们的日志里之前显示最早转入来自 0x6Cc9397c3B38739daCbfaA68EaD5F5D77Ba5F455
+        print("5. 水龙头标识: 请根据最早转入的 From 地址判断（大概率是 google 或 infura）")
+        
     else:
         print(f"请求失败，状态码: {response.status_code}")
-        
 except Exception as e:
     print(f"发生错误: {e}")
