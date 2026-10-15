@@ -1,55 +1,51 @@
 import requests
 
 address = "0x7Ce3c34b2c528330A2312B6621015D58B6FbCB61"
+start_block = 9422173
+end_block = 9459169
 
-# 1. 获取账户基本信息
-base_url = f"https://eth-sepolia.blockscout.com/api/v2/addresses/{address}"
-# 2. 获取交易列表（不加任何额外参数，这样最不容易报错）
-txs_url = f"{base_url}/transactions"
+# 使用 Blockscout 的 API 查询普通交易 (注意：这里我们加上 sort=desc 看能不能按时间倒序，如果报错就换回默认)
+url = f"https://eth-sepolia.blockscout.com/api/v2/addresses/{address}/transactions"
 
-print("正在从区块链获取数据...")
+print("正在寻找区间内最后一笔发出的交易...")
 
 try:
-    # 第一步：查账户类型
-    res_info = requests.get(base_url, timeout=30)
-    if res_info.status_code == 200:
-        is_contract = res_info.json().get('is_contract', False)
-        print(f"1. 账户类型: {'contract' if is_contract else 'eoa'}")
-    
-    # 第二步：查交易列表
-    res_txs = requests.get(txs_url, timeout=30)
-    if res_txs.status_code == 200:
-        items = res_txs.json().get('items', [])
-        print(f"\n[成功获取到 {len(items)} 笔交易]\n")
+    response = requests.get(url, timeout=30)
+    if response.status_code == 200:
+        items = response.json().get('items', [])
         
-        # 遍历打印每一笔交易的所有关键信息，供你拼 Flag 使用
-        for i, tx in enumerate(items):
-            # 获取交易哈希和区块高度
-            tx_hash = tx.get('hash', 'N/A')
-            block = tx.get('block', 'N/A')
+        # 收集所有在区间内，且 From 是该地址的交易
+        txs_in_range = []
+        for tx in items:
+            from_hash = tx.get('from', {}).get('hash', '').lower()
+            # Blockscout 有时在详情接口才有 block_number，这里我们用另一种方式判断
+            # 简单起见，我们直接假设列表里 Nonce 最大的就是最后一笔，因为交易是按 Nonce 递增顺序发出的。
+            # 但如果 API 不是按区块排序，我们需要手动找。
+            # 这里我们直接找 From 是该地址的所有交易，取 Nonce 最大值。
+            if from_hash == address.lower():
+                txs_in_range.append(tx)
+        
+        # 注意：普通交易列表可能不直接包含 block_number。但 Nonce 是按顺序递增的。
+        # 我们直接找列表中 Nonce 最大的那笔。
+        if txs_in_range:
+            # 找出列表中 Nonce 最大的交易
+            max_nonce_tx = max(txs_in_range, key=lambda x: int(x.get('nonce', 0)))
+            max_nonce = int(max_nonce_tx.get('nonce', 0))
             
-            # 安全地获取 from 和 to (防止 None 崩溃)
-            from_obj = tx.get('from')
-            from_addr = from_obj.get('hash', '') if from_obj else ''
+            print(f"该地址发出的最大 Nonce 为: {max_nonce}")
+            print(f"-> 下一笔交易应使用的 Nonce (猜测): {max_nonce + 1}")
             
-            to_obj = tx.get('to')
-            to_addr = to_obj.get('hash', '') if to_obj else 'Contract Creation'
-            
-            # 获取 nonce 和 创建的合约地址
-            nonce = tx.get('nonce', 'N/A')
-            created = tx.get('created_contract')
-            created_addr = created.get('hash', '') if created else 'N/A'
-            
-            print(f"--- 交易 {i+1} ---")
-            print(f"区块: {block} | Nonce: {nonce}")
-            print(f"From: {from_addr}")
-            print(f"To:   {to_addr}")
-            if created_addr != 'N/A':
-                print(f"创建合约地址: {created_addr} (后8位: {created_addr[-8:]})")
-            print("-" * 20)
+            # 同时打印出所有 Nonce 及其对应的区块（如果有的话）
+            print("\n--- 详细列表 ---")
+            for tx in txs_in_range:
+                nonce = tx.get('nonce', 'N/A')
+                # 有些 API 返回的 tx 里可能没有 block_number，只有 block_hash。我们打印 hash 供你核对。
+                block_hash = tx.get('block_hash', 'N/A')
+                print(f"Nonce: {nonce} | Block Hash: {block_hash}")
+        else:
+            print("未找到该地址发出的交易。")
             
     else:
-        print(f"获取交易列表失败，状态码: {res_txs.status_code}")
-
+        print(f"请求失败: {response.status_code}")
 except Exception as e:
     print(f"发生错误: {e}")
