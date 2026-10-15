@@ -1,7 +1,7 @@
 name: Run Query Script
 
 on:
-  workflow_dispatch:  # 允许你手动点击运行
+  workflow_dispatch:
 
 jobs:
   run-python:
@@ -18,5 +18,8 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
-      - name: Run script
+      - name: Run Python script
         run: python query.py
+
+      - name: Run Shell script (Etherscan API)
+        run: bash run.sh
