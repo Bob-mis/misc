@@ -15,7 +15,12 @@ try:
         print(f"1. 账户类型: {'contract' if is_contract else 'eoa'}")
         
         # 2. 寻找最早转入的水龙头
-        received = [tx for tx in items if tx.get('to', {}).get('hash', '').lower() == address.lower()]
+        received = []
+        for tx in items:
+            to_hash = tx.get('to', {}).get('hash', '') if tx.get('to') else ''
+            if to_hash.lower() == address.lower():
+                received.append(tx)
+                
         if received:
             received.sort(key=lambda x: int(x['block']))
             from_addr = received[0].get('from', {}).get('hash', '')
@@ -24,7 +29,12 @@ try:
                 print("   -> 水龙头标识: google")
         
         # 3. 寻找发出的最后一笔交易，计算 nonce
-        sent = [tx for tx in items if tx.get('from', {}).get('hash', '').lower() == address.lower()]
+        sent = []
+        for tx in items:
+            from_hash = tx.get('from', {}).get('hash', '') if tx.get('from') else ''
+            if from_hash.lower() == address.lower():
+                sent.append(tx)
+                
         if sent:
             sent.sort(key=lambda x: int(x['block']))
             last_nonce = int(sent[-1]['nonce'])
@@ -32,10 +42,21 @@ try:
             print(f"   -> 下一笔应使用的 nonce: {last_nonce + 1}")
         
         # 4. 寻找创建的合约地址
-        creations = [tx for tx in items if tx.get('to') is None and tx.get('from', {}).get('hash', '').lower() == address.lower()]
+        creations = []
+        for tx in items:
+            to_hash = tx.get('to')
+            from_hash = tx.get('from', {}).get('hash', '') if tx.get('from') else ''
+            if to_hash is None and from_hash.lower() == address.lower():
+                creations.append(tx)
+                
         if creations:
             contract_addr = creations[0].get('created_contract', {}).get('hash', '')
-            print(f"4. 合约地址后8位: {contract_addr[-8:]}")
+            if contract_addr:
+                print(f"4. 合约地址后8位: {contract_addr[-8:]}")
+            else:
+                print("4. 未找到创建的合约地址")
+        else:
+            print("4. 区间内没有创建合约的交易")
             
     else:
         print(f"请求失败，状态码: {response.status_code}")
