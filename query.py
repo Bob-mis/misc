@@ -4,56 +4,54 @@ address = "0x7Ce3c34b2c528330A2312B6621015D58B6FbCB61"
 start_block = 9422173
 end_block = 9459169
 
-# 使用 Etherscan 的 API (这次用另一个不需要 Key 的公共端点)
-# 注意：如果这个还不行，我们就要用 Blockscout 的原始交易数据手动过滤。
-# 这里优先尝试一个更稳的公共节点接口。
-url = f"https://api-sepolia.etherscan.io/api?module=account&action=txlist&address={address}&startblock={start_block}&endblock={end_block}&sort=asc&apikey=YourApiKeyToken"
+print(f"正在精准查询区块 {start_block} 到 {end_block} 之间的数据...")
 
-print("正在查询指定区间内的交易...")
+# 直接使用 Blockscout 的 API，根据区块范围过滤
+url = f"https://eth-sepolia.blockscout.com/api/v2/addresses/{address}/transactions?filter=from&block_range={start_block}..{end_block}"
+
 try:
     response = requests.get(url, timeout=30)
-    data = response.json()
-    
-    if data.get('status') == '1':
-        txs = data['result']
-        print(f"在区间 {start_block} 到 {end_block} 内找到了 {len(txs)} 笔交易。\n")
+    if response.status_code == 200:
+        data = response.json()
+        items = data.get('items', [])
         
-        # 1. 找区间内最后一笔发出的交易 (用于计算 nonce)
-        sent_txs = [tx for tx in txs if tx['from'].lower() == address.lower()]
-        if sent_txs:
-            last_sent = sent_txs[-1] # 列表是升序，最后一个是最大的
-            last_nonce = int(last_sent['nonce'])
-            print(f"--- 区间内最后一笔发出交易 ---")
-            print(f"Block: {last_sent['blockNumber']}")
-            print(f"Nonce: {last_nonce}")
-            print(f"To: {last_sent['to']}")
-            print(f"-> 下一笔应使用的 Nonce: {last_nonce + 1}")
-            print("-" * 30)
+        print(f"共找到 {len(items)} 笔交易。")
+        
+        if items:
+            # 取最后一笔交易 (列表可能是按时间倒序，第一笔是最新)
+            # 我们先确保按区块排序
+            items.sort(key=lambda x: int(x.get('block_number', 0)))
+            last_tx = items[-1] # 取最新的一笔
+            first_tx = items[0] # 取最早的一笔
+            
+            # 1. 计算 Nonce
+            nonce = int(last_tx.get('nonce', 0))
+            print(f"\n1. 最后一笔交易区块: {last_tx.get('block_number')}")
+            print(f"2. 最后一笔交易 Nonce: {nonce}")
+            print(f"3. 下一笔应使用的 Nonce: {nonce + 1}")
+            
+            # 2. 找创建合约的交易 (To 为 None)
+            contract_txs = [tx for tx in items if tx.get('to') is None]
+            if contract_txs:
+                # 取最早的一笔创建合约交易
+                contract_addr = contract_txs[0].get('created_contract', {}).get('hash', '')
+                if contract_addr:
+                    print(f"4. 创建的合约地址后8位: {contract_addr[-8:]}")
+                else:
+                    print("4. 未找到合约地址详情（可能API延迟）")
+            else:
+                print("4. 区间内未创建合约。")
+
+            # 3. 判断水龙头标识 (看最早一笔转入)
+            # 注意：这里我们查的是 From 的交易，要看转入得查 To。
+            # 为了保险，我们可以再查一下转入记录，或者直接看这个列表。
+            print(f"\n5. 请根据以下信息判断水龙头:")
+            print(f"   最早一笔交易来自 (From): {first_tx.get('from', {}).get('hash', '')}")
+            
         else:
-            print("区间内未找到该地址发出的交易。")
-            
-        # 2. 找区间内最早的转入交易 (用于判断水龙头)
-        received_txs = [tx for tx in txs if tx['to'].lower() == address.lower()]
-        if received_txs:
-            first_received = received_txs[0] # 最早的一笔
-            from_addr = first_received['from']
-            print(f"--- 区间内最早一笔转入 ---")
-            print(f"From: {from_addr}")
-            # 如果 from 包含 google 关键字，标识就是 google
-            if "google" in from_addr.lower() or "cloud" in from_addr.lower():
-                print("-> 水龙头标识: google")
-            print("-" * 30)
-            
-        # 3. 找创建的合约地址
-        contract_creations = [tx for tx in txs if tx['to'] == '' and tx['from'].lower() == address.lower()]
-        if contract_creations:
-            contract_addr = contract_creations[0]['contractAddress']
-            print(f"--- 创建合约 ---")
-            print(f"合约地址后8位: {contract_addr[-8:]}")
-            print("-" * 30)
-            
+            print("区间内没有交易。")
     else:
-        print(f"查询失败: {data.get('message', '未知错误')}")
-        print("提示: 这可能是由于网络限制或 API 限制。")
+        print(f"请求失败，状态码: {response.status_code}")
+        
 except Exception as e:
     print(f"发生错误: {e}")
