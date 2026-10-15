@@ -18,8 +18,5 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
-      - name: Run Python script
+      - name: Run script
         run: python query.py
-
-      - name: Run Shell script (Etherscan API)
-        run: bash run.sh
